@@ -114,6 +114,35 @@ function makeEntry(raw, type) {
   return { type, display: base, baseNorm: toNorm(base) };
 }
 
+/** Dedup helpers */
+function normalizeText(s) {
+  return toNorm(s || "");
+}
+function normalizeUrl(u) {
+  if (!u) return "";
+  let s = String(u).trim().toLowerCase();
+  s = s.replace(/^https?:\/\//, "").replace(/^www\./, "");
+  if (s.endsWith("/")) s = s.slice(0, -1);
+  return s;
+}
+function offerKey(o) {
+  const title = normalizeText(firstField(o, LIST_FIELDS.title) || "");
+  const desc = normalizeText(firstField(o, LIST_FIELDS.desc) || "");
+  const link = normalizeUrl(firstField(o, LIST_FIELDS.link) || "");
+  const img = normalizeUrl(firstField(o, LIST_FIELDS.image) || "");
+  return `${title}||${desc}||${link}||${img}`;
+}
+function dedupWrappers(arr, seen) {
+  const out = [];
+  for (const w of arr || []) {
+    const k = offerKey(w.offer);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(w);
+  }
+  return out;
+}
+
 /** Disclaimer */
 const Disclaimer = () => (
   <section className="disclaimer">
@@ -260,7 +289,7 @@ const HotelOffers = () => {
 
     setNoMatches(false);
 
-    // 🔑 Bias order: Debit first if query has debit/dc, Credit first if query has credit/cc
+    // Debit bias if query mentions it
     if (q.includes("debit card") || q.includes("dc")) {
       setFilteredCards([
         ...(dc.length ? [{ type: "heading", label: "Debit Cards" }] : []),
@@ -318,14 +347,21 @@ const HotelOffers = () => {
     return out;
   }
 
-  // Collect
+  // Collect raw
   const wAmazon = matchesFor(amazonOffers, "Amazon", selected?.type);
   const wCroma = matchesFor(cromaOffers, "Croma", selected?.type);
   const wFlipkart = matchesFor(flipkartOffers, "Flipkart", selected?.type);
   const wReliance = matchesFor(relianceOffers, "Reliance Digital", selected?.type);
 
+  // Dedup across all
+  const seen = new Set();
+  const dAmazon = dedupWrappers(wAmazon, seen);
+  const dCroma = dedupWrappers(wCroma, seen);
+  const dFlipkart = dedupWrappers(wFlipkart, seen);
+  const dReliance = dedupWrappers(wReliance, seen);
+
   const hasAny = Boolean(
-    wAmazon.length || wCroma.length || wFlipkart.length || wReliance.length
+    dAmazon.length || dCroma.length || dFlipkart.length || dReliance.length
   );
 
   /** Offer card UI */
@@ -385,19 +421,13 @@ const HotelOffers = () => {
           )}
 
           {wrapper.site === "Croma" && link && (
-            <button
-              className="btn"
-              onClick={() => window.open(link, "_blank")}
-            >
+            <button className="btn" onClick={() => window.open(link, "_blank")}>
               View Offer
             </button>
           )}
 
           {wrapper.site === "Reliance Digital" && link && (
-            <button
-              className="btn"
-              onClick={() => window.open(link, "_blank")}
-            >
+            <button className="btn" onClick={() => window.open(link, "_blank")}>
               View Offer
             </button>
           )}
@@ -448,7 +478,11 @@ const HotelOffers = () => {
               item.type === "heading" ? (
                 <li
                   key={`h-${idx}`}
-                  style={{ padding: "8px 10px", fontWeight: 700, background: "#fafafa" }}
+                  style={{
+                    padding: "8px 10px",
+                    fontWeight: 700,
+                    background: "#fafafa",
+                  }}
                 >
                   {item.label}
                 </li>
@@ -488,44 +522,44 @@ const HotelOffers = () => {
           className="offers-section"
           style={{ maxWidth: 1200, margin: "0 auto", padding: 20 }}
         >
-          {!!wAmazon.length && (
+          {!!dAmazon.length && (
             <div className="offer-group">
               <h2 style={{ textAlign: "center" }}>Offers on Amazon</h2>
               <div className="offer-grid">
-                {wAmazon.map((w, i) => (
+                {dAmazon.map((w, i) => (
                   <OfferCard key={`amz-${i}`} wrapper={w} />
                 ))}
               </div>
             </div>
           )}
 
-          {!!wCroma.length && (
+          {!!dCroma.length && (
             <div className="offer-group">
               <h2 style={{ textAlign: "center" }}>Offers on Croma</h2>
               <div className="offer-grid">
-                {wCroma.map((w, i) => (
+                {dCroma.map((w, i) => (
                   <OfferCard key={`croma-${i}`} wrapper={w} />
                 ))}
               </div>
             </div>
           )}
 
-          {!!wFlipkart.length && (
+          {!!dFlipkart.length && (
             <div className="offer-group">
               <h2 style={{ textAlign: "center" }}>Offers on Flipkart</h2>
               <div className="offer-grid">
-                {wFlipkart.map((w, i) => (
+                {dFlipkart.map((w, i) => (
                   <OfferCard key={`flip-${i}`} wrapper={w} />
                 ))}
               </div>
             </div>
           )}
 
-          {!!wReliance.length && (
+          {!!dReliance.length && (
             <div className="offer-group">
               <h2 style={{ textAlign: "center" }}>Offers on Reliance Digital</h2>
               <div className="offer-grid">
-                {wReliance.map((w, i) => (
+                {dReliance.map((w, i) => (
                   <OfferCard key={`rel-${i}`} wrapper={w} />
                 ))}
               </div>
@@ -540,34 +574,34 @@ const HotelOffers = () => {
         </p>
       )}
 
-   {selected && hasAny && !noMatches && (
-  <button
-    onClick={() =>
-      window.scrollBy({ top: window.innerHeight, behavior: "smooth" })
-    }
-    style={{
-      position: "fixed",
-      right: 20,
-      bottom: isMobile ? 20 : 150,
-      padding: isMobile ? "12px 15px" : "10px 20px",
-      backgroundColor: "#1e7145",
-      color: "white",
-      border: "none",
-      borderRadius: isMobile ? "50%" : 8,
-      cursor: "pointer",
-      fontSize: 18,
-      zIndex: 1000,
-      boxShadow: "0 2px 5px rgba(0,0,0,0.2)",
-      width: isMobile ? 50 : 140,
-      height: 50,
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-    }}
-  >
-    {isMobile ? "↓" : "Scroll Down"}
-  </button>
-)}
+      {selected && hasAny && !noMatches && (
+        <button
+          onClick={() =>
+            window.scrollBy({ top: window.innerHeight, behavior: "smooth" })
+          }
+          style={{
+            position: "fixed",
+            right: 20,
+            bottom: isMobile ? 20 : 150,
+            padding: isMobile ? "12px 15px" : "10px 20px",
+            backgroundColor: "#1e7145",
+            color: "white",
+            border: "none",
+            borderRadius: isMobile ? "50%" : 8,
+            cursor: "pointer",
+            fontSize: 18,
+            zIndex: 1000,
+            boxShadow: "0 2px 5px rgba(0,0,0,0.2)",
+            width: isMobile ? 50 : 140,
+            height: 50,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          {isMobile ? "↓" : "Scroll Down"}
+        </button>
+      )}
 
       <Disclaimer />
     </div>
