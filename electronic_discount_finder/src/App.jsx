@@ -967,7 +967,7 @@ const HotelOffers = () => {
 
           {!!dBlinking.length && (
             <div className="offer-group">
-              <h2 style={{ textAlign: "center" }}>Offers on Blinking</h2>
+              <h2 style={{ textAlign: "center" }}>Offers on Blinkit</h2>
               <div className="offer-grid">
                 {dBlinking.map((w, i) => (
                   <OfferCard key={`blink-${i}`} wrapper={w} />
