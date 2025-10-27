@@ -15,6 +15,26 @@ const LIST_FIELDS = {
 
 const MAX_SUGGESTIONS = 50;
 
+/** -------------------- FALLBACK LOGOS --------------------
+ * We'll use these if:
+ *  - CSV image is missing/blank/invalid
+ *  - OR the CSV image fails to load (onError)
+ */
+const FALLBACK_IMAGE_BY_SITE = {
+  amazon:
+    "https://media.licdn.com/dms/image/v2/D4D12AQF083mMinXCtQ/article-cover_image-shrink_720_1280/article-cover_image-shrink_720_1280/0/1686067344413?e=2147483647&v=beta&t=nm30MQ8OI-9VSUXR95shyABNZfOmt-f5f9R4zf9_yeU",
+  blinkit:
+    "https://yt3.googleusercontent.com/oe7za_pjcm3tYZKtTAs6aWuZCOzB6aHWnZOGYwrYjuZe72SMkVs3qoCElDQl-ob8CaKNimXI=s900-c-k-c0x00ffffff-no-rj",
+  croma:
+    "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRSuJw-G69osCWDOvabS4K8FjdfiepJ_9FdfA&s",
+  flipkart:
+    "https://play-lh.googleusercontent.com/0-sXSA0gnPDKi6EeQQCYPsrDx6DqnHELJJ7wFP8bWCpziL4k5kJf8RnOoupdnOFuDm_n=s256-rw",
+  instamart:
+    "https://static.businessworld.in/Swiggy%20Instamart%20Orange-20%20(1)_20240913021826_original_image_44.webp",
+  "reliance digital":
+    "https://cdn.shopify.com/s/files/1/0562/4011/1678/files/reliance-digital_logo.png?v=1708586249",
+};
+
 /** -------------------- HELPERS -------------------- */
 const toNorm = (s) =>
   String(s || "")
@@ -54,7 +74,7 @@ function getBase(name) {
   return String(name).replace(/\s*\([^)]*\)\s*$/, "").trim();
 }
 
-/** ➕ NEW: Extract variant from trailing parentheses: "… (Rupay Classic)" -> "Rupay Classic" */
+/** Extract variant from trailing "(...)" → "Rupay Classic" etc */
 function getVariant(name) {
   if (!name) return "";
   const m = String(name).match(/\(([^)]+)\)\s*$/);
@@ -75,7 +95,7 @@ function brandCanonicalize(text) {
   return s;
 }
 
-/** Levenshtein distance */
+/** Levenshtein */
 function lev(a, b) {
   a = toNorm(a);
   b = toNorm(b);
@@ -99,6 +119,7 @@ function lev(a, b) {
   return d[n][m];
 }
 
+/** Rank suggestions */
 function scoreCandidate(q, cand) {
   const qs = toNorm(q);
   const cs = toNorm(cand);
@@ -112,6 +133,7 @@ function scoreCandidate(q, cand) {
     cWords.some((cw) => cw.includes(qw))
   ).length;
   const sim = 1 - lev(qs, cs) / Math.max(qs.length, cs.length);
+
   return (matchingWords / Math.max(1, qWords.length)) * 0.7 + sim * 0.3;
 }
 
@@ -150,17 +172,52 @@ function dedupWrappers(arr, seen) {
   return out;
 }
 
+/** Is an image string usable? (not blank/N-A/etc.) */
+function isUsableImage(val) {
+  if (!val) return false;
+  const s = String(val).trim();
+  if (!s) return false;
+  if (/^(na|n\/a|null|undefined|-|image unavailable)$/i.test(s)) return false;
+  return true;
+}
+
+/** Pick final image source and whether it's already a fallback */
+function resolveImage(site, candidateRaw) {
+  const key = String(site || "").toLowerCase();
+  const fallback = FALLBACK_IMAGE_BY_SITE[key];
+  const shouldFall =
+    (!isUsableImage(candidateRaw) || !candidateRaw) && !!fallback;
+  return {
+    src: shouldFall ? fallback : candidateRaw,
+    usingFallback: shouldFall,
+  };
+}
+
+/** If CSV image fails at runtime -> swap to fallback logo */
+function handleImgError(e, site) {
+  const key = String(site || "").toLowerCase();
+  const fallback = FALLBACK_IMAGE_BY_SITE[key];
+  const el = e.currentTarget;
+  if (fallback && el.src !== fallback) {
+    el.src = fallback;
+    el.classList.add("is-fallback");
+  } else {
+    // last resort: hide
+    el.style.display = "none";
+  }
+}
+
 /** Disclaimer */
 const Disclaimer = () => (
   <section className="disclaimer">
     <h3>Disclaimer</h3>
     <p>
-      All offers, coupons, and discounts listed on our platform are provided for
-      informational purposes only. We do not guarantee the accuracy,
+      All offers, coupons, and discounts listed on our platform are provided
+      for informational purposes only. We do not guarantee the accuracy,
       availability, or validity of any offer. Users are advised to verify the
       terms and conditions with the respective merchants before making any
-      purchase. We are not responsible for any discrepancies, expired offers, or
-      losses arising from the use of these coupons.
+      purchase. We are not responsible for any discrepancies, expired offers,
+      or losses arising from the use of these coupons.
     </p>
   </section>
 );
@@ -171,7 +228,7 @@ const HotelOffers = () => {
   const [creditEntries, setCreditEntries] = useState([]);
   const [debitEntries, setDebitEntries] = useState([]);
 
-  // marquee (built from all offer CSVs)
+  // marquee (built from offer CSVs)
   const [marqueeCC, setMarqueeCC] = useState([]);
   const [marqueeDC, setMarqueeDC] = useState([]);
 
@@ -182,7 +239,7 @@ const HotelOffers = () => {
   const [noMatches, setNoMatches] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
-  // offers
+  // offers (shop/grocery/e-comm CSVs)
   const [amazonOffers, setAmazonOffers] = useState([]);
   const [cromaOffers, setCromaOffers] = useState([]);
   const [flipkartOffers, setFlipkartOffers] = useState([]);
@@ -198,7 +255,7 @@ const HotelOffers = () => {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // 1) Load allCards.csv
+  // 1) Load allCards.csv for dropdown list
   useEffect(() => {
     async function loadAllCards() {
       try {
@@ -214,13 +271,15 @@ const HotelOffers = () => {
           for (const raw of ccList) {
             const base = brandCanonicalize(getBase(raw));
             const baseNorm = toNorm(base);
-            if (baseNorm) creditMap.set(baseNorm, creditMap.get(baseNorm) || base);
+            if (baseNorm)
+              creditMap.set(baseNorm, creditMap.get(baseNorm) || base);
           }
           const dcList = splitList(firstField(row, LIST_FIELDS.debit));
           for (const raw of dcList) {
             const base = brandCanonicalize(getBase(raw));
             const baseNorm = toNorm(base);
-            if (baseNorm) debitMap.set(baseNorm, debitMap.get(baseNorm) || base);
+            if (baseNorm)
+              debitMap.set(baseNorm, debitMap.get(baseNorm) || base);
           }
         }
 
@@ -256,7 +315,10 @@ const HotelOffers = () => {
         await Promise.all(
           files.map(async (f) => {
             const res = await axios.get(`/${encodeURIComponent(f.name)}`);
-            const parsed = Papa.parse(res.data, { header: true });
+            const parsed = Papa.parse(res.data, {
+              header: true,
+              skipEmptyLines: true,
+            });
             f.setter(parsed.data || []);
           })
         );
@@ -267,13 +329,14 @@ const HotelOffers = () => {
     loadOffers();
   }, []);
 
-  /** Build marquee CC/DC from all OFFER CSVs (skip "All CC/DC") */
+  /** Build marquee CC/DC from ALL offer CSV rows */
   useEffect(() => {
     const ccMap = new Map();
     const dcMap = new Map();
 
     const harvest = (rows) => {
       for (const o of rows || []) {
+        // look at separate credit / debit columns
         const cc = splitList(firstField(o, LIST_FIELDS.credit));
         const dc = splitList(firstField(o, LIST_FIELDS.debit));
 
@@ -290,13 +353,15 @@ const HotelOffers = () => {
           if (baseNorm) dcMap.set(baseNorm, dcMap.get(baseNorm) || base);
         }
 
+        // mixed list like "Eligible Cards"
         const mixed = splitList(o["Eligible Cards"]);
         for (const raw of mixed) {
           const lower = raw.toLowerCase();
           const base = brandCanonicalize(getBase(raw));
           const baseNorm = toNorm(base);
           if (!baseNorm) continue;
-          if (lower.includes("debit")) dcMap.set(baseNorm, dcMap.get(baseNorm) || base);
+          if (lower.includes("debit"))
+            dcMap.set(baseNorm, dcMap.get(baseNorm) || base);
           else if (lower.includes("credit"))
             ccMap.set(baseNorm, ccMap.get(baseNorm) || base);
         }
@@ -310,8 +375,12 @@ const HotelOffers = () => {
     harvest(instamartOffers);
     harvest(blinkingOffers);
 
-    setMarqueeCC(Array.from(ccMap.values()).sort((a, b) => a.localeCompare(b)));
-    setMarqueeDC(Array.from(dcMap.values()).sort((a, b) => a.localeCompare(b)));
+    setMarqueeCC(
+      Array.from(ccMap.values()).sort((a, b) => a.localeCompare(b))
+    );
+    setMarqueeDC(
+      Array.from(dcMap.values()).sort((a, b) => a.localeCompare(b))
+    );
   }, [
     amazonOffers,
     cromaOffers,
@@ -321,7 +390,7 @@ const HotelOffers = () => {
     blinkingOffers,
   ]);
 
-  /** 🔎 search box — debit-first when query hints debit */
+  /** Search box w/ debit-priority if they type "debit" */
   const onChangeQuery = (e) => {
     const val = e.target.value;
     setQuery(val);
@@ -348,7 +417,10 @@ const HotelOffers = () => {
           return { it, s, inc };
         })
         .filter(({ s, inc }) => inc || s > 0.3)
-        .sort((a, b) => b.s - a.s || a.it.display.localeCompare(b.it.display))
+        .sort(
+          (a, b) =>
+            b.s - a.s || a.it.display.localeCompare(b.it.display)
+        )
         .slice(0, MAX_SUGGESTIONS)
         .map(({ it }) => it);
 
@@ -383,7 +455,7 @@ const HotelOffers = () => {
     setNoMatches(false);
   };
 
-  // Click a marquee chip → set the dropdown + selected entry
+  // Click marquee chip → instant select
   const handleChipClick = (name, type) => {
     const display = brandCanonicalize(getBase(name));
     const baseNorm = toNorm(display);
@@ -393,24 +465,36 @@ const HotelOffers = () => {
     setNoMatches(false);
   };
 
-  /** ➕ UPDATED: return wrappers {offer, site, variantText} and honor "All CC/DC" */
-  function matchesFor(offers, site, type) {
+  /**
+   * Build wrappers like:
+   * { offer, site, variantText }
+   *
+   * Handles:
+   *  - specific card rows
+   *  - "All CC"/"All DC"
+   *  - extracts variant from "(Visa Platinum)" etc
+   */
+  function matchesFor(offers, site, selType /* 'credit' | 'debit' */) {
     if (!selected) return [];
     const out = [];
 
     for (const o of offers || []) {
       let list = [];
 
-      if (type === "credit") {
+      if (selType === "credit") {
         list = splitList(firstField(o, LIST_FIELDS.credit));
         if (list.some((v) => toNorm(v) === "all cc")) {
-          if (selected.type === "credit") out.push({ offer: o, site, variantText: "" });
+          if (selected.type === "credit") {
+            out.push({ offer: o, site, variantText: "" });
+          }
           continue;
         }
-      } else if (type === "debit") {
+      } else if (selType === "debit") {
         list = splitList(firstField(o, LIST_FIELDS.debit));
         if (list.some((v) => toNorm(v) === "all dc")) {
-          if (selected.type === "debit") out.push({ offer: o, site, variantText: "" });
+          if (selected.type === "debit") {
+            out.push({ offer: o, site, variantText: "" });
+          }
           continue;
         }
       }
@@ -418,24 +502,29 @@ const HotelOffers = () => {
       for (const raw of list) {
         const base = brandCanonicalize(getBase(raw));
         if (toNorm(base) === selected.baseNorm) {
-          const v = getVariant(raw); // capture the variant text, if any
+          const v = getVariant(raw);
           out.push({ offer: o, site, variantText: v || "" });
           break;
         }
       }
     }
+
     return out;
   }
 
-  // Collect raw
+  // grab per-site matches based on selected.type
   const wAmazon = matchesFor(amazonOffers, "Amazon", selected?.type);
   const wCroma = matchesFor(cromaOffers, "Croma", selected?.type);
   const wFlipkart = matchesFor(flipkartOffers, "Flipkart", selected?.type);
-  const wReliance = matchesFor(relianceOffers, "Reliance Digital", selected?.type);
+  const wReliance = matchesFor(
+    relianceOffers,
+    "Reliance Digital",
+    selected?.type
+  );
   const wInstamart = matchesFor(instamartOffers, "Instamart", selected?.type);
-  const wBlinking = matchesFor(blinkingOffers, "Blinking", selected?.type);
+  const wBlinking = matchesFor(blinkingOffers, "Blinkit", selected?.type);
 
-  // Dedup across all
+  // dedup global
   const seen = new Set();
   const dAmazon = dedupWrappers(wAmazon, seen);
   const dCroma = dedupWrappers(wCroma, seen);
@@ -453,131 +542,72 @@ const HotelOffers = () => {
       dBlinking.length
   );
 
+  /** Case-insensitive getter for arbitrary CSV columns */
+  const getCI = (obj, key) => {
+    if (!obj) return undefined;
+    const target = String(key).toLowerCase();
+    for (const k of Object.keys(obj)) {
+      if (String(k).toLowerCase() === target) return obj[k];
+    }
+    return undefined;
+  };
+
   /** Offer card UI */
   const OfferCard = ({ wrapper }) => {
     const o = wrapper.offer;
+    const siteName = wrapper.site; // "Amazon" | "Croma" | "Flipkart" | "Reliance Digital" | "Instamart" | "Blinkit"
 
-    // case-insensitive exact-key getter
-    const getCI = (obj, key) => {
-      if (!obj) return undefined;
-      const target = String(key).toLowerCase();
-      for (const k of Object.keys(obj)) {
-        if (String(k).toLowerCase() === target) return obj[k];
-      }
-      return undefined;
-    };
+    // common pulls
+    const csvTitle =
+      firstField(o, LIST_FIELDS.title) ||
+      getCI(o, "Offer Title") ||
+      "Offer";
 
-    // Defaults
-    const titleDefault =
-      firstField(o, ["Offer Title"]) || firstField(o, LIST_FIELDS.title) || "Offer";
-    const descDefault = firstField(o, LIST_FIELDS.desc);
-    const linkDefault = firstField(o, LIST_FIELDS.link);
-    const imageDefault = firstField(o, LIST_FIELDS.image);
+    const csvDesc =
+      firstField(o, LIST_FIELDS.desc) ||
+      getCI(o, "Description") ||
+      "";
 
-    const site = String(wrapper.site || "");
+    const csvLink =
+      firstField(o, LIST_FIELDS.link) ||
+      getCI(o, "Link") ||
+      "";
 
-    // Amazon: Offer + scrollable T&C
-    if (site === "Amazon") {
-      const title = getCI(o, "Offer Title") || titleDefault;
-      const terms =
-        getCI(o, "Terms and Conditions") ||
-        getCI(o, "Terms & Conditions") ||
-        getCI(o, "T&C") ||
-        "";
+    const csvImage =
+      firstField(o, LIST_FIELDS.image) ||
+      getCI(o, "Image") ||
+      getCI(o, "Offer Image");
 
-      return (
-        <div className="offer-card">
-          <div className="offer-info">
-            <h3 className="offer-title">{title}</h3>
-            {terms && (
-              <div
-                style={{
-                  maxHeight: 200,
-                  overflowY: "auto",
-                  border: "1px solid #ccc",
-                  padding: "8px",
-                }}
-              >
-                <strong>Terms &amp; Conditions:</strong>
-                <br />
-                {terms}
-              </div>
-            )}
+    // final image with fallback
+    const { src: finalImg, usingFallback } = resolveImage(
+      siteName,
+      csvImage
+    );
 
-            {/* ➕ NEW: Variant note if present */}
-            {wrapper.variantText && (
-              <p className="network-note">
-                <strong>Note:</strong> This benefit is applicable only on{" "}
-                <em>{wrapper.variantText}</em> variant
-              </p>
-            )}
-          </div>
-        </div>
-      );
-    }
+    // Terms & Conditions style text (Amazon, Flipkart, Croma, etc.)
+    const terms =
+      getCI(o, "Terms and Conditions") ||
+      getCI(o, "Terms & Conditions") ||
+      getCI(o, "T&C") ||
+      "";
 
-    // Croma: Image + Offer + scrollable T&C + View Offer
-    if (site === "Croma") {
-      const title = getCI(o, "Offer Title") || titleDefault;
-      const terms =
-        getCI(o, "Terms and Conditions") ||
-        getCI(o, "Terms & Conditions") ||
-        getCI(o, "T&C") ||
-        "";
-      const link = getCI(o, "Link") || linkDefault;
-      const img = getCI(o, "Image") || imageDefault;
+    // Coupon-style sites (Instamart, Blinkit)
+    const coupon = getCI(o, "Coupon Code");
 
-      return (
-        <div className="offer-card">
-          {img && <img src={img} alt="Offer" />}
-          <div className="offer-info">
-            <h3 className="offer-title">{title}</h3>
-            {terms && (
-              <div
-                style={{
-                  maxHeight: 200,
-                  overflowY: "auto",
-                  border: "1px solid #ccc",
-                  padding: "8px",
-                }}
-              >
-                <strong>Terms &amp; Conditions:</strong>
-                <br />
-                {terms}
-              </div>
-            )}
-            {link && (
-              <button className="btn" onClick={() => window.open(link, "_blank")}>
-                View Offer
-              </button>
-            )}
+    // copy handler for coupon codes with popup
+    const handleCopy = () => {
+      if (!coupon) return;
+      const text = String(coupon);
 
-            {/* ➕ NEW: Variant note */}
-            {wrapper.variantText && (
-              <p className="network-note">
-                <strong>Note:</strong> This benefit is applicable only on{" "}
-                <em>{wrapper.variantText}</em> variant
-              </p>
-            )}
-          </div>
-        </div>
-      );
-    }
+      const done = () => {
+        alert("Coupon code is copied!!");
+      };
 
-    // Instamart / Blinking: Coupon (with Copy popup) + Offer + Description
-    if (site === "Instamart" || site === "Blinking") {
-      const title = getCI(o, "Offer Title") || titleDefault;
-      const coupon = getCI(o, "Coupon Code");
-      const desc = getCI(o, "Description") || descDefault;
-
-      const onCopy = () => {
-        if (!coupon) return;
-        const text = String(coupon);
-        const done = () => alert("Coupon code is copied!!"); // ➕ NEW POPUP
-
-        if (navigator.clipboard?.writeText) {
-          navigator.clipboard.writeText(text).then(done).catch(() => {
-            // Fallback
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard
+          .writeText(text)
+          .then(done)
+          .catch(() => {
             try {
               const ta = document.createElement("textarea");
               ta.value = text;
@@ -591,140 +621,116 @@ const HotelOffers = () => {
               done();
             } catch {}
           });
-        } else {
-          try {
-            const ta = document.createElement("textarea");
-            ta.value = text;
-            ta.style.position = "fixed";
-            ta.style.opacity = "0";
-            document.body.appendChild(ta);
-            ta.focus();
-            ta.select();
-            document.execCommand("copy");
-            document.body.removeChild(ta);
-            done();
-          } catch {}
-        }
-      };
-
-      return (
-        <div className="offer-card">
-          <div className="offer-info">
-            {coupon && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginBottom: 10,
-                }}
-              >
-                <span
-                  style={{
-                    padding: "6px 10px",
-                    border: "1px dashed #9aa4b2",
-                    borderRadius: 6,
-                    background: "#f7f9ff",
-                    fontFamily: "monospace",
-                  }}
-                >
-                  {coupon}
-                </span>
-                <button
-                  className="btn"
-                  onClick={onCopy}
-                  aria-label="Copy coupon code"
-                  title="Copy coupon code"
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                >
-                  <span role="img" aria-hidden="true">📋</span> Copy
-                </button>
-              </div>
-            )}
-            <h3 className="offer-title">{title}</h3>
-            {desc && <p className="offer-desc">{desc}</p>}
-
-            {/* ➕ NEW: Variant note */}
-            {wrapper.variantText && (
-              <p className="network-note">
-                <strong>Note:</strong> This benefit is applicable only on{" "}
-                <em>{wrapper.variantText}</em> variant
-              </p>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    // Flipkart: Offer + scrollable T&C + View Offer
-    if (site === "Flipkart") {
-      const title = getCI(o, "Offer Title") || titleDefault;
-      const terms =
-        getCI(o, "Terms and Conditions") ||
-        getCI(o, "Terms & Conditions") ||
-        getCI(o, "T&C") ||
-        "";
-      const link = getCI(o, "Link") || linkDefault;
-
-      return (
-        <div className="offer-card">
-          <div className="offer-info">
-            <h3 className="offer-title">{title}</h3>
-            {terms && (
-              <div
-                style={{
-                  maxHeight: 200,
-                  overflowY: "auto",
-                  border: "1px solid #ccc",
-                  padding: "8px",
-                }}
-              >
-                <strong>Terms &amp; Conditions:</strong>
-                <br />
-                {terms}
-              </div>
-            )}
-            {link && (
-              <button className="btn" onClick={() => window.open(link, "_blank")}>
-                View Offer
-              </button>
-            )}
-
-            {/* ➕ NEW: Variant note */}
-            {wrapper.variantText && (
-              <p className="network-note">
-                <strong>Note:</strong> This benefit is applicable only on{" "}
-                <em>{wrapper.variantText}</em> variant
-              </p>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    // Reliance Digital (generic behavior)
-    const title = titleDefault;
-    const desc = descDefault;
-    const link = linkDefault;
+      } else {
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+          done();
+        } catch {}
+      }
+    };
 
     return (
       <div className="offer-card">
-        <div className="offer-info">
-          <h3 className="offer-title">{title}</h3>
-          {desc && <p className="offer-desc">{desc}</p>}
+        {finalImg && (
+          <img
+            className={`offer-img ${usingFallback ? "is-fallback" : ""}`}
+            src={finalImg}
+            alt={csvTitle || siteName || "Offer Image"}
+            onError={(e) => handleImgError(e, siteName)}
+          />
+        )}
 
-          {site === "Reliance Digital" && link && (
-            <button className="btn" onClick={() => window.open(link, "_blank")}>
-              View Offer
-            </button>
+        <div className="offer-info">
+          {/* Title */}
+          <h3 className="offer-title">{csvTitle}</h3>
+
+          {/* Coupon block (Instamart / Blinkit style) */}
+          {coupon && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 10,
+                justifyContent: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <span
+                style={{
+                  padding: "6px 10px",
+                  border: "1px dashed #9aa4b2",
+                  borderRadius: 6,
+                  background: "#f7f9ff",
+                  fontFamily: "monospace",
+                }}
+              >
+                {coupon}
+              </span>
+              <button
+                className="btn"
+                onClick={handleCopy}
+                aria-label="Copy coupon code"
+                title="Copy coupon code"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span role="img" aria-hidden="true">📋</span> Copy
+              </button>
+            </div>
           )}
 
-          {/* ➕ NEW: Variant note */}
-          {wrapper.variantText && (
+          {/* Description / body */}
+          {csvDesc && <p className="offer-desc">{csvDesc}</p>}
+
+          {/* Terms & Conditions scrollbox if present */}
+          {terms && (
+            <div
+              style={{
+                maxHeight: 200,
+                overflowY: "auto",
+                border: "1px solid #ccc",
+                padding: "8px",
+                textAlign: "left",
+                fontSize: "14px",
+                lineHeight: 1.4,
+                borderRadius: "6px",
+                marginTop: "10px",
+              }}
+            >
+              <strong>Terms &amp; Conditions:</strong>
+              <br />
+              {terms}
+            </div>
+          )}
+
+          {/* Variant note if we matched e.g. "(Visa Platinum)" */}
+          {wrapper.variantText && wrapper.variantText.trim() !== "" && (
             <p className="network-note">
               <strong>Note:</strong> This benefit is applicable only on{" "}
               <em>{wrapper.variantText}</em> variant
             </p>
+          )}
+
+          {/* CTA button if link is present */}
+          {csvLink && (
+            <button
+              className="btn"
+              onClick={() => window.open(csvLink, "_blank")}
+            >
+              View Offer
+            </button>
           )}
         </div>
       </div>
@@ -733,7 +739,7 @@ const HotelOffers = () => {
 
   return (
     <div className="App" style={{ fontFamily: "'Libre Baskerville', serif" }}>
-      {/* Floating list of CC/DC (from offer CSVs) above the input */}
+      {/* Chips marquee from offers */}
       {(marqueeCC.length > 0 || marqueeDC.length > 0) && (
         <div
           style={{
@@ -892,7 +898,11 @@ const HotelOffers = () => {
               item.type === "heading" ? (
                 <li
                   key={`h-${idx}`}
-                  style={{ padding: "8px 10px", fontWeight: 700, background: "#fafafa" }}
+                  style={{
+                    padding: "8px 10px",
+                    fontWeight: 700,
+                    background: "#fafafa",
+                  }}
                 >
                   {item.label}
                 </li>
@@ -1009,7 +1019,10 @@ const HotelOffers = () => {
       {selected && hasAny && !noMatches && (
         <button
           onClick={() =>
-            window.scrollBy({ top: window.innerHeight, behavior: "smooth" })
+            window.scrollBy({
+              top: window.innerHeight,
+              behavior: "smooth",
+            })
           }
           style={{
             position: "fixed",

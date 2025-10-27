@@ -1,5 +1,3 @@
-@import "tailwindcss";
-
 /* Global */
 body{
   font-family: Arial, sans-serif;
@@ -9,14 +7,24 @@ body{
   background: linear-gradient(135deg,#F8F9FA 3%,#E9ECEF 100%,#CECDC9 100%);
 }
 
-.App{ text-align:center; padding:20px; }
+.App{
+  text-align:center;
+  padding:20px;
+  font-family:'Libre Baskerville', serif;
+}
 
 /* ----------------  Section & Titles  ---------------- */
-.offers-section{ max-width:1200px; margin:0 auto; padding:20px; }
+.offers-section{
+  max-width:1200px;
+  margin:0 auto;
+  padding:20px;
+}
 
-.offer-group{ margin:24px 0 8px; }
+.offer-group{
+  margin:24px 0 8px;
+}
 .offer-group > h2{
-  text-align:center;                /* centered section headings */
+  text-align:center;
   font-weight:700;
   font-size:27px;
   margin:6px 0 22px;
@@ -25,10 +33,9 @@ body{
 /* ----------------  Grid & Cards  ---------------- */
 .offer-grid{
   display:grid;
-  /* Left-starting grid on desktop; cards stretch to column width */
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap:32px;
-  justify-items:stretch;            /* cards take full column width */
+  justify-items:stretch;
   align-items:stretch;
 }
 
@@ -38,14 +45,27 @@ body{
   border:1px solid #eee;
   box-shadow:0 6px 18px rgba(0,0,0,0.07);
   overflow:hidden;
-  width:90%;                       /* no fixed max-width; let grid control width */
+  width:90%;
+  max-width:100%;
+  margin:0;
 }
 
-.offer-card img{
+/* Image area */
+.offer-img{
   width:100%;
   height:220px;
   object-fit:cover;
   display:block;
+}
+
+/* If we’re showing a brand logo fallback instead of a promo banner,
+   contain it with padding so it doesn't stretch/crop weirdly */
+.offer-img.is-fallback{
+  background:#fff;
+  object-fit:contain;
+  padding:16px;
+  box-sizing:border-box;
+  height:220px;
 }
 
 .offer-info{
@@ -68,8 +88,10 @@ body{
   margin:0 0 10px 0;
 }
 
-/* permanent offers extra line */
-.inbuilt-note{ margin:4px 0 10px; font-size:15px; }
+.inbuilt-note{
+  margin:4px 0 10px;
+  font-size:15px;
+}
 
 .network-note{
   color:#d32f2f;
@@ -86,9 +108,11 @@ body{
   border-radius:8px;
   cursor:pointer;
   font-weight:700;
-  margin-top:20
+  margin-top:20px;
 }
-.btn:hover{ filter:brightness(0.95); }
+.btn:hover{
+  filter:brightness(0.95);
+}
 
 /* ----------------  Dropdown  ---------------- */
 .dropdown-input:focus{
@@ -97,7 +121,7 @@ body{
   box-shadow:0 0 0 3px rgba(122,140,255,.15);
 }
 
-/* Only styling helpers; the list itself is rendered inline from JS */
+/* suggestion list */
 ul{
   list-style:none;
   margin:0;
@@ -117,9 +141,11 @@ ul li{
   border-bottom:1px solid #eee;
   transition:background-color .2s ease;
 }
-ul li:hover{ background:#f0f0f0; }
+ul li:hover{
+  background:#f0f0f0;
+}
 
-/* ----------------  Disclaimer (as before)  ---------------- */
+/* ----------------  Disclaimer  ---------------- */
 .disclaimer{
   max-width:900px;
   margin:36px auto 84px;
@@ -155,19 +181,46 @@ ul li:hover{ background:#f0f0f0; }
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap:28px;
   }
-  .offer-card img{ height:200px; }
+  .offer-img{
+    height:200px;
+  }
+  .offer-img.is-fallback{
+    height:200px;
+  }
 }
 
 @media (max-width: 768px){
-  .dropdown{ max-width:90%; margin:0 auto; }
+  .dropdown{
+    max-width:90%;
+    margin:0 auto;
+  }
+
   .offer-grid{
-    grid-template-columns: 1fr;     /* single column like your mobile screenshot */
+    grid-template-columns: 1fr; /* single column on mobile */
     gap:22px;
   }
-  .offer-card img{ height:auto; }
-  .offer-title{ font-size:17px; }
-  .offer-desc{ font-size:15px; }
-  .disclaimer{ margin:28px auto 64px; }
-  .disclaimer h3{ font-size:20px; }
-  .disclaimer p{ font-size:14.5px; line-height:1.7; }
+
+  .offer-img,
+  .offer-img.is-fallback{
+    height:auto;
+    max-height:240px;
+  }
+
+  .offer-title{
+    font-size:17px;
+  }
+  .offer-desc{
+    font-size:15px;
+  }
+
+  .disclaimer{
+    margin:28px auto 64px;
+  }
+  .disclaimer h3{
+    font-size:20px;
+  }
+  .disclaimer p{
+    font-size:14.5px;
+    line-height:1.7;
+  }
 }
