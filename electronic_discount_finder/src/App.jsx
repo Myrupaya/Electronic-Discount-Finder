@@ -7,7 +7,7 @@ import "./App.css";
 const LIST_FIELDS = {
   credit: ["Eligible Credit Cards", "Eligible Cards"],
   debit: ["Eligible Debit Cards", "Applicable Debit Cards"],
-  title: ["Offer Title", "Title"],
+  title: ["Offer Title", "Title", "Offer"],
   image: ["Image", "Credit Card Image", "Offer Image"],
   link: ["Link", "Offer Link"],
   desc: ["Description", "Details", "Offer Description", "Flight Benefit"],
@@ -16,9 +16,7 @@ const LIST_FIELDS = {
 const MAX_SUGGESTIONS = 50;
 
 /** -------------------- FALLBACK LOGOS --------------------
- * We'll use these if:
- *  - CSV image is missing/blank/invalid
- *  - OR the CSV image fails to load (onError)
+ * we'll keep these SAME as you had
  */
 const FALLBACK_IMAGE_BY_SITE = {
   amazon:
@@ -239,13 +237,11 @@ const HotelOffers = () => {
   const [noMatches, setNoMatches] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
-  // offers (shop/grocery/e-comm CSVs)
+  // offers (ONLY these 4 now)
   const [amazonOffers, setAmazonOffers] = useState([]);
   const [cromaOffers, setCromaOffers] = useState([]);
   const [flipkartOffers, setFlipkartOffers] = useState([]);
   const [relianceOffers, setRelianceOffers] = useState([]);
-  const [instamartOffers, setInstamartOffers] = useState([]);
-  const [blinkingOffers, setBlinkingOffers] = useState([]);
 
   // responsive
   useEffect(() => {
@@ -255,7 +251,7 @@ const HotelOffers = () => {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // 1) Load allCards.csv for dropdown list
+  // 1) Load allCards.csv for dropdown list (UNCHANGED)
   useEffect(() => {
     async function loadAllCards() {
       try {
@@ -299,7 +295,7 @@ const HotelOffers = () => {
     loadAllCards();
   }, []);
 
-  // 2) Load offer CSVs
+  // 2) Load offer CSVs (ONLY these 4)
   useEffect(() => {
     async function loadOffers() {
       try {
@@ -308,8 +304,6 @@ const HotelOffers = () => {
           { name: "croma.csv", setter: setCromaOffers },
           { name: "flipkart.csv", setter: setFlipkartOffers },
           { name: "reliance-digital.csv", setter: setRelianceOffers },
-          { name: "instamart.csv", setter: setInstamartOffers },
-          { name: "blinking.csv", setter: setBlinkingOffers },
         ];
 
         await Promise.all(
@@ -329,14 +323,13 @@ const HotelOffers = () => {
     loadOffers();
   }, []);
 
-  /** Build marquee CC/DC from ALL offer CSV rows */
+  /** Build marquee CC/DC from ONLY these 4 offer CSV rows */
   useEffect(() => {
     const ccMap = new Map();
     const dcMap = new Map();
 
     const harvest = (rows) => {
       for (const o of rows || []) {
-        // look at separate credit / debit columns
         const cc = splitList(firstField(o, LIST_FIELDS.credit));
         const dc = splitList(firstField(o, LIST_FIELDS.debit));
 
@@ -353,7 +346,6 @@ const HotelOffers = () => {
           if (baseNorm) dcMap.set(baseNorm, dcMap.get(baseNorm) || base);
         }
 
-        // mixed list like "Eligible Cards"
         const mixed = splitList(o["Eligible Cards"]);
         for (const raw of mixed) {
           const lower = raw.toLowerCase();
@@ -372,8 +364,6 @@ const HotelOffers = () => {
     harvest(cromaOffers);
     harvest(flipkartOffers);
     harvest(relianceOffers);
-    harvest(instamartOffers);
-    harvest(blinkingOffers);
 
     setMarqueeCC(
       Array.from(ccMap.values()).sort((a, b) => a.localeCompare(b))
@@ -381,16 +371,9 @@ const HotelOffers = () => {
     setMarqueeDC(
       Array.from(dcMap.values()).sort((a, b) => a.localeCompare(b))
     );
-  }, [
-    amazonOffers,
-    cromaOffers,
-    flipkartOffers,
-    relianceOffers,
-    instamartOffers,
-    blinkingOffers,
-  ]);
+  }, [amazonOffers, cromaOffers, flipkartOffers, relianceOffers]);
 
-  /** Search box w/ debit-priority if they type "debit" */
+  /** Search box */
   const onChangeQuery = (e) => {
     const val = e.target.value;
     setQuery(val);
@@ -465,15 +448,7 @@ const HotelOffers = () => {
     setNoMatches(false);
   };
 
-  /**
-   * Build wrappers like:
-   * { offer, site, variantText }
-   *
-   * Handles:
-   *  - specific card rows
-   *  - "All CC"/"All DC"
-   *  - extracts variant from "(Visa Platinum)" etc
-   */
+  /** build wrappers */
   function matchesFor(offers, site, selType /* 'credit' | 'debit' */) {
     if (!selected) return [];
     const out = [];
@@ -512,7 +487,7 @@ const HotelOffers = () => {
     return out;
   }
 
-  // grab per-site matches based on selected.type
+  // matches
   const wAmazon = matchesFor(amazonOffers, "Amazon", selected?.type);
   const wCroma = matchesFor(cromaOffers, "Croma", selected?.type);
   const wFlipkart = matchesFor(flipkartOffers, "Flipkart", selected?.type);
@@ -521,8 +496,6 @@ const HotelOffers = () => {
     "Reliance Digital",
     selected?.type
   );
-  const wInstamart = matchesFor(instamartOffers, "Instamart", selected?.type);
-  const wBlinking = matchesFor(blinkingOffers, "Blinkit", selected?.type);
 
   // dedup global
   const seen = new Set();
@@ -530,19 +503,12 @@ const HotelOffers = () => {
   const dCroma = dedupWrappers(wCroma, seen);
   const dFlipkart = dedupWrappers(wFlipkart, seen);
   const dReliance = dedupWrappers(wReliance, seen);
-  const dInstamart = dedupWrappers(wInstamart, seen);
-  const dBlinking = dedupWrappers(wBlinking, seen);
 
   const hasAny = Boolean(
-    dAmazon.length ||
-      dCroma.length ||
-      dFlipkart.length ||
-      dReliance.length ||
-      dInstamart.length ||
-      dBlinking.length
+    dAmazon.length || dCroma.length || dFlipkart.length || dReliance.length
   );
 
-  /** Case-insensitive getter for arbitrary CSV columns */
+  /** CI getter */
   const getCI = (obj, key) => {
     if (!obj) return undefined;
     const target = String(key).toLowerCase();
@@ -552,186 +518,106 @@ const HotelOffers = () => {
     return undefined;
   };
 
-  /** Offer card UI */
+  /** Offer card UI (adjusted as per site) */
   const OfferCard = ({ wrapper }) => {
     const o = wrapper.offer;
-    const siteName = wrapper.site; // "Amazon" | "Croma" | "Flipkart" | "Reliance Digital" | "Instamart" | "Blinkit"
+    const siteName = wrapper.site; // "Amazon" | "Croma" | "Flipkart" | "Reliance Digital"
 
     // common pulls
-    const csvTitle =
+    const csvOffer =
+      getCI(o, "Offer") ||
       firstField(o, LIST_FIELDS.title) ||
-      getCI(o, "Offer Title") ||
       "Offer";
 
-    const csvDesc =
-      firstField(o, LIST_FIELDS.desc) ||
-      getCI(o, "Description") ||
-      "";
-
-    const csvLink =
-      firstField(o, LIST_FIELDS.link) ||
-      getCI(o, "Link") ||
-      "";
-
-    const csvImage =
-      firstField(o, LIST_FIELDS.image) ||
-      getCI(o, "Image") ||
-      getCI(o, "Offer Image");
-
-    // final image with fallback
-    const { src: finalImg, usingFallback } = resolveImage(
-      siteName,
-      csvImage
-    );
-
-    // Terms & Conditions style text (Amazon, Flipkart, Croma, etc.)
-    const terms =
+    const csvTnC =
       getCI(o, "Terms and Conditions") ||
       getCI(o, "Terms & Conditions") ||
       getCI(o, "T&C") ||
       "";
 
-    // Coupon-style sites (Instamart, Blinkit)
-    const coupon = getCI(o, "Coupon Code");
+    const csvLink = getCI(o, "Link") || firstField(o, LIST_FIELDS.link) || "";
+    const csvImage =
+      getCI(o, "Image") || firstField(o, LIST_FIELDS.image) || "";
 
-    // copy handler for coupon codes with popup
-    const handleCopy = () => {
-      if (!coupon) return;
-      const text = String(coupon);
+    // final image with fallback (for croma requirement)
+    const { src: finalImg, usingFallback } = resolveImage(siteName, csvImage);
 
-      const done = () => {
-        alert("Coupon code is copied!!");
-      };
+    // scrollable container style for T&C
+    const termsBox =
+      csvTnC && (
+        <div
+          style={{
+            maxHeight: 200,
+            overflowY: "auto",
+            border: "1px solid #ccc",
+            padding: "8px",
+            textAlign: "left",
+            fontSize: "14px",
+            lineHeight: 1.4,
+            borderRadius: "6px",
+            marginTop: "10px",
+          }}
+        >
+          <strong>Terms &amp; Conditions:</strong>
+          <br />
+          {csvTnC}
+        </div>
+      );
 
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard
-          .writeText(text)
-          .then(done)
-          .catch(() => {
-            try {
-              const ta = document.createElement("textarea");
-              ta.value = text;
-              ta.style.position = "fixed";
-              ta.style.opacity = "0";
-              document.body.appendChild(ta);
-              ta.focus();
-              ta.select();
-              document.execCommand("copy");
-              document.body.removeChild(ta);
-              done();
-            } catch {}
-          });
-      } else {
-        try {
-          const ta = document.createElement("textarea");
-          ta.value = text;
-          ta.style.position = "fixed";
-          ta.style.opacity = "0";
-          document.body.appendChild(ta);
-          ta.focus();
-          ta.select();
-          document.execCommand("copy");
-          document.body.removeChild(ta);
-          done();
-        } catch {}
-      }
-    };
-
-    return (
-      <div className="offer-card">
-        {finalImg && (
-          <img
-            className={`offer-img ${usingFallback ? "is-fallback" : ""}`}
-            src={finalImg}
-            alt={csvTitle || siteName || "Offer Image"}
-            onError={(e) => handleImgError(e, siteName)}
-          />
-        )}
-
-        <div className="offer-info">
-          {/* Title */}
-          <h3 className="offer-title">{csvTitle}</h3>
-
-          {/* Coupon block (Instamart / Blinkit style) */}
-          {coupon && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                marginBottom: 10,
-                justifyContent: "center",
-                flexWrap: "wrap",
-              }}
-            >
-              <span
-                style={{
-                  padding: "6px 10px",
-                  border: "1px dashed #9aa4b2",
-                  borderRadius: 6,
-                  background: "#f7f9ff",
-                  fontFamily: "monospace",
-                }}
-              >
-                {coupon}
-              </span>
+    // RENDER PER SITE
+    if (siteName === "Croma") {
+      return (
+        <div className="offer-card">
+          {finalImg && (
+            <img
+              className={`offer-img ${usingFallback ? "is-fallback" : ""}`}
+              src={finalImg}
+              alt={csvOffer || "Offer"}
+              onError={(e) => handleImgError(e, siteName)}
+            />
+          )}
+          <div className="offer-info">
+            <h3 className="offer-title">{csvOffer}</h3>
+            {termsBox}
+            {csvLink && (
               <button
                 className="btn"
-                onClick={handleCopy}
-                aria-label="Copy coupon code"
-                title="Copy coupon code"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
+                onClick={() => window.open(csvLink, "_blank")}
               >
-                <span role="img" aria-hidden="true">📋</span> Copy
+                View Offer
               </button>
-            </div>
-          )}
+            )}
+          </div>
+        </div>
+      );
+    }
 
-          {/* Description / body */}
-          {csvDesc && <p className="offer-desc">{csvDesc}</p>}
+    if (siteName === "Reliance Digital") {
+      return (
+        <div className="offer-card">
+          {/* no image required explicitly by you, keeping it simple */}
+          <div className="offer-info">
+            <h3 className="offer-title">{csvOffer}</h3>
+            {termsBox}
+            {csvLink && (
+              <button
+                className="btn"
+                onClick={() => window.open(csvLink, "_blank")}
+              >
+                View Offer
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
 
-          {/* Terms & Conditions scrollbox if present */}
-          {terms && (
-            <div
-              style={{
-                maxHeight: 200,
-                overflowY: "auto",
-                border: "1px solid #ccc",
-                padding: "8px",
-                textAlign: "left",
-                fontSize: "14px",
-                lineHeight: 1.4,
-                borderRadius: "6px",
-                marginTop: "10px",
-              }}
-            >
-              <strong>Terms &amp; Conditions:</strong>
-              <br />
-              {terms}
-            </div>
-          )}
-
-          {/* Variant note if we matched e.g. "(Visa Platinum)" */}
-          {wrapper.variantText && wrapper.variantText.trim() !== "" && (
-            <p className="network-note">
-              <strong>Note:</strong> This benefit is applicable only on{" "}
-              <em>{wrapper.variantText}</em> variant
-            </p>
-          )}
-
-          {/* CTA button if link is present */}
-          {csvLink && (
-            <button
-              className="btn"
-              onClick={() => window.open(csvLink, "_blank")}
-            >
-              View Offer
-            </button>
-          )}
+    // Amazon & Flipkart: show offer + scrollable T&C
+    return (
+      <div className="offer-card">
+        <div className="offer-info">
+          <h3 className="offer-title">{csvOffer}</h3>
+          {termsBox}
         </div>
       </div>
     );
@@ -959,28 +845,6 @@ const HotelOffers = () => {
               <div className="offer-grid">
                 {dCroma.map((w, i) => (
                   <OfferCard key={`croma-${i}`} wrapper={w} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {!!dInstamart.length && (
-            <div className="offer-group">
-              <h2 style={{ textAlign: "center" }}>Offers on Instamart</h2>
-              <div className="offer-grid">
-                {dInstamart.map((w, i) => (
-                  <OfferCard key={`insta-${i}`} wrapper={w} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {!!dBlinking.length && (
-            <div className="offer-group">
-              <h2 style={{ textAlign: "center" }}>Offers on Blinkit</h2>
-              <div className="offer-grid">
-                {dBlinking.map((w, i) => (
-                  <OfferCard key={`blink-${i}`} wrapper={w} />
                 ))}
               </div>
             </div>
