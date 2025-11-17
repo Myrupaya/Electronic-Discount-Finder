@@ -15,9 +15,7 @@ const LIST_FIELDS = {
 
 const MAX_SUGGESTIONS = 50;
 
-/** -------------------- FALLBACK LOGOS --------------------
- * we'll keep these SAME as you had
- */
+/** -------------------- FALLBACK LOGOS -------------------- */
 const FALLBACK_IMAGE_BY_SITE = {
   amazon:
     "https://media.licdn.com/dms/image/v2/D4D12AQF083mMinXCtQ/article-cover_image-shrink_720_1280/article-cover_image-shrink_720_1280/0/1686067344413?e=2147483647&v=beta&t=nm30MQ8OI-9VSUXR95shyABNZfOmt-f5f9R4zf9_yeU",
@@ -135,6 +133,33 @@ function scoreCandidate(q, cand) {
   return (matchingWords / Math.max(1, qWords.length)) * 0.7 + sim * 0.3;
 }
 
+/** 🔹 Fuzzy name matcher – so "selct" can still match "select" cards */
+function isFuzzyNameMatch(query, label) {
+  const q = toNorm(query);
+  const l = toNorm(label);
+  if (!q || !l) return false;
+
+  if (l.includes(q)) return true;
+
+  const wholeDist = lev(q, l);
+  const wholeSim = 1 - wholeDist / Math.max(q.length, l.length);
+  if (wholeSim >= 0.6) return true;
+
+  const qWords = q.split(" ").filter(Boolean);
+  const lWords = l.split(" ").filter(Boolean);
+
+  for (const qw of qWords) {
+    if (qw.length < 3) continue;
+    for (const lw of lWords) {
+      if (lw.length < 3) continue;
+      const d = lev(qw, lw);
+      const sim = 1 - d / Math.max(qw.length, lw.length);
+      if (sim >= 0.7) return true;
+    }
+  }
+  return false;
+}
+
 /** Dropdown entry builder */
 function makeEntry(raw, type) {
   const base = brandCanonicalize(getBase(raw));
@@ -200,7 +225,6 @@ function handleImgError(e, site) {
     el.src = fallback;
     el.classList.add("is-fallback");
   } else {
-    // last resort: hide
     el.style.display = "none";
   }
 }
@@ -251,7 +275,7 @@ const HotelOffers = () => {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // 1) Load allCards.csv for dropdown list (UNCHANGED)
+  // 1) Load allCards.csv for dropdown list
   useEffect(() => {
     async function loadAllCards() {
       try {
@@ -373,7 +397,7 @@ const HotelOffers = () => {
     );
   }, [amazonOffers, cromaOffers, flipkartOffers, relianceOffers]);
 
-  /** Search box */
+  /** Search box – UPDATED with select-intent + debit-first + fuzzy */
   const onChangeQuery = (e) => {
     const val = e.target.value;
     setQuery(val);
@@ -385,30 +409,36 @@ const HotelOffers = () => {
       return;
     }
 
-    const q = val.trim().toLowerCase();
-    const debitHint =
-      q.includes("debit cards") ||
-      q.includes("debit card") ||
-      q.includes("debit") ||
-      q.includes("dc");
+    const qLower = val.trim().toLowerCase();
 
+    // 🔹 Debit intent: "dc", "debit", "debit card" (case-insensitive)
+    const debitHint =
+      qLower.includes("debit cards") ||
+      qLower.includes("debit card") ||
+      qLower.includes("debit") ||
+      qLower.includes("dc");
+
+    // base scoring + fuzzy match
     const scored = (arr) =>
       arr
         .map((it) => {
-          const s = scoreCandidate(val, it.display);
-          const inc = it.display.toLowerCase().includes(q);
-          return { it, s, inc };
+          const baseScore = scoreCandidate(val, it.display);
+          const inc = it.display.toLowerCase().includes(qLower);
+          const fuzzy = isFuzzyNameMatch(val, it.display);
+
+          let s = baseScore;
+          if (inc) s += 2.0; // strong boost if substring
+          if (fuzzy) s += 1.5; // extra boost for fuzzy match
+
+          return { it, s, inc, fuzzy };
         })
-        .filter(({ s, inc }) => inc || s > 0.3)
-        .sort(
-          (a, b) =>
-            b.s - a.s || a.it.display.localeCompare(b.it.display)
-        )
+        .filter(({ s, inc, fuzzy }) => inc || fuzzy || s > 0.3)
+        .sort((a, b) => b.s - a.s || a.it.display.localeCompare(b.it.display))
         .slice(0, MAX_SUGGESTIONS)
         .map(({ it }) => it);
 
-    const cc = scored(creditEntries);
-    const dc = scored(debitEntries);
+    let cc = scored(creditEntries);
+    let dc = scored(debitEntries);
 
     if (!cc.length && !dc.length) {
       setNoMatches(true);
@@ -417,6 +447,39 @@ const HotelOffers = () => {
       return;
     }
 
+    // 🔹 "select" intent (also handles typos like "selct")
+    const qNorm = toNorm(val);
+    const qWords = qNorm.split(" ").filter(Boolean);
+
+    const hasSelectWord = qWords.some((w) => {
+      if (w === "select") return true;
+      if (w.length < 3) return false;
+      const d = lev(w, "select");
+      const sim = 1 - d / Math.max(w.length, "select".length);
+      return sim >= 0.7; // "selct", "selec", etc.
+    });
+
+    const isSelectIntent =
+      qNorm.includes("select credit card") ||
+      qNorm.includes("select card") ||
+      hasSelectWord;
+
+    if (isSelectIntent) {
+      const reorderBySelect = (arr) => {
+        const selectCards = [];
+        const others = [];
+        arr.forEach((item) => {
+          const labelNorm = toNorm(item.display);
+          if (labelNorm.includes("select")) selectCards.push(item);
+          else others.push(item);
+        });
+        return [...selectCards, ...others];
+      };
+      cc = reorderBySelect(cc);
+      dc = reorderBySelect(dc);
+    }
+
+    // 🔹 Build final list: debit-first or credit-first
     const firstList = debitHint ? dc : cc;
     const firstLabel = debitHint ? "Debit Cards" : "Credit Cards";
     const secondList = debitHint ? cc : dc;
@@ -491,11 +554,7 @@ const HotelOffers = () => {
   const wAmazon = matchesFor(amazonOffers, "Amazon", selected?.type);
   const wCroma = matchesFor(cromaOffers, "Croma", selected?.type);
   const wFlipkart = matchesFor(flipkartOffers, "Flipkart", selected?.type);
-  const wReliance = matchesFor(
-    relianceOffers,
-    "Reliance Digital",
-    selected?.type
-  );
+  const wReliance = matchesFor(relianceOffers, "Reliance Digital", selected?.type);
 
   // dedup global
   const seen = new Set();
@@ -523,11 +582,8 @@ const HotelOffers = () => {
     const o = wrapper.offer;
     const siteName = wrapper.site; // "Amazon" | "Croma" | "Flipkart" | "Reliance Digital"
 
-    // common pulls
     const csvOffer =
-      getCI(o, "Offer") ||
-      firstField(o, LIST_FIELDS.title) ||
-      "Offer";
+      getCI(o, "Offer") || firstField(o, LIST_FIELDS.title) || "Offer";
 
     const csvTnC =
       getCI(o, "Terms and Conditions") ||
@@ -539,10 +595,8 @@ const HotelOffers = () => {
     const csvImage =
       getCI(o, "Image") || firstField(o, LIST_FIELDS.image) || "";
 
-    // final image with fallback (for croma requirement)
     const { src: finalImg, usingFallback } = resolveImage(siteName, csvImage);
 
-    // scrollable container style for T&C
     const termsBox =
       csvTnC && (
         <div
@@ -564,7 +618,6 @@ const HotelOffers = () => {
         </div>
       );
 
-    // RENDER PER SITE
     if (siteName === "Croma") {
       return (
         <div className="offer-card">
@@ -595,7 +648,6 @@ const HotelOffers = () => {
     if (siteName === "Reliance Digital") {
       return (
         <div className="offer-card">
-          {/* no image required explicitly by you, keeping it simple */}
           <div className="offer-info">
             <h3 className="offer-title">{csvOffer}</h3>
             {termsBox}
